@@ -6,6 +6,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 7777;
+const DB_DIALECT = process.env.DB_DIALECT || "mariadb";
+const DB_PORT = process.env.DB_PORT || (DB_DIALECT === "postgres" ? 5432 : 3306);
 
 app.use(express.json());
 
@@ -15,45 +17,28 @@ const sequelize = new Sequelize(
   process.env.DB_PASSWORD,
   {
     host: process.env.DB_HOST,
-    dialect: "mariadb",
-    port: 3306,
+    dialect: DB_DIALECT,
+    port: DB_PORT,
     logging: false,
   }
 );
 
-(async () => {
-  try {
-    await sequelize.authenticate();
-    console.log("Database connected successfully");
-  } catch (error) {
-    console.error("Unable to connect to the database:", error);
-  }
-})();
-
-app.get("/inspect", async (req, res) => {
+async function runInspection(res = null) {
   try {
     const queryInterface = sequelize.getQueryInterface();
 
-    // PostgreSQL
-    // const tablesRes = await sequelize.query(
-    //   `
-    //   SELECT table_name
-    //     FROM information_schema.tables
-    //     WHERE table_schema = 'public'`,
-    //   { type: Sequelize.QueryTypes.SELECT }
-    // );
+    console.log(`Starting inspection for ${DB_DIALECT}...`);
 
-    // Mariadb
-    const tablesRes = await sequelize.query(
-      `
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = DATABASE()
-      `,
-      { type: Sequelize.QueryTypes.SELECT }
-    );
+    const tableQuery =
+      DB_DIALECT === "postgres"
+        ? "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        : "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()";
 
-    console.log("Tables:", tablesRes);
+    const tablesRes = await sequelize.query(tableQuery, {
+      type: Sequelize.QueryTypes.SELECT,
+    });
+
+    console.log("Tables found:", tablesRes.length);
 
     const schema = [];
 
@@ -86,6 +71,7 @@ app.get("/inspect", async (req, res) => {
         : row.table_name;
 
       if (!tableName) continue;
+      console.log(`Processing table: ${tableName}`);
 
       const indexes = await queryInterface.showIndex(tableName);
       const indexedColumns = indexes.flatMap((index) =>
@@ -111,7 +97,6 @@ app.get("/inspect", async (req, res) => {
       try {
         const columns = await queryInterface.describeTable(tableName);
 
-        console.log("Columns:", columns);
         const fields = Object.entries(columns).map(([columnName, details]) => {
           const [datatype, size] = parseDatatype(details.type || "");
           return {
@@ -121,8 +106,8 @@ app.get("/inspect", async (req, res) => {
               datatype === "ENUM"
                 ? size
                 : details.special?.length
-                ? details.special.join(", ")
-                : size,
+                  ? details.special.join(", ")
+                  : size,
             "Attibute Name": "",
             "etc.": details.comment || "",
             "Default Value": details.defaultValue || "",
@@ -144,21 +129,50 @@ app.get("/inspect", async (req, res) => {
     }
 
     const googleAppsScriptUrl = `https://script.google.com/macros/s/${process.env.GOOGLE_SHEET_KEY}/exec`;
+    console.log("Sending data to Google Sheet...");
+
     const response = await axios.post(googleAppsScriptUrl, schema, {
       headers: { "Content-Type": "application/json" },
     });
 
-    res.json({
+    const result = {
       message: "Data sent to Google Sheet",
       googleResponse: response.data,
-      schema,
-    });
+      tablesProcessed: schema.length,
+    };
+
+    if (res) {
+      res.json({ ...result, schema });
+    } else {
+      console.log("Success:", result.message);
+      console.log("Google Response:", result.googleResponse);
+    }
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("Error during inspection:", error);
+    if (res) {
+      res.status(500).json({ error: error.message });
+    }
   }
+}
+
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log(`Database connected successfully (${DB_DIALECT})`);
+
+    if (process.env.AUTO_RUN === "true") {
+      await runInspection();
+    }
+  } catch (error) {
+    console.error("Unable to connect to the database:", error);
+  }
+})();
+
+app.get("/inspect", async (req, res) => {
+  await runInspection(res);
 });
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log(`SQL Inspector (${DB_DIALECT}) ready at http://localhost:${PORT}/inspect`);
 });

@@ -17,13 +17,15 @@ const connectDB = async () => {
       useUnifiedTopology: true,
     });
     console.log("MongoDB connected successfully");
+
+    if (process.env.AUTO_RUN === "true") {
+      await runInspection();
+    }
   } catch (error) {
     console.error("Unable to connect to MongoDB:", error);
     process.exit(1);
   }
 };
-
-connectDB();
 
 function analyzeFieldType(value) {
   if (value === null || value === undefined) return "Mixed";
@@ -59,11 +61,8 @@ function getFieldStats(values) {
 
 function isForeignKey(fieldName, dataType) {
   if (fieldName === "_id") return false;
-
   if (dataType === "ObjectId") return true;
-
   if (dataType === "Array of ObjectId") return true;
-
   return false;
 }
 
@@ -105,16 +104,12 @@ async function analyzeCollectionSchema(collectionName, sampleSize = 100) {
     function extractPaths(obj, prefix = "") {
       for (const [key, value] of Object.entries(obj)) {
         const fullPath = prefix ? `${prefix}.${key}` : key;
-
         if (fullPath === "__v") continue;
-
         fieldPaths.add(fullPath);
-
         if (!fieldValues[fullPath]) {
           fieldValues[fullPath] = [];
         }
         fieldValues[fullPath].push(value);
-
         if (
           value &&
           typeof value === "object" &&
@@ -193,11 +188,6 @@ async function analyzeCollectionSchema(collectionName, sampleSize = 100) {
         }
       }
 
-      const presencePercent = (
-        (stats.nonNullCount / stats.totalCount) *
-        100
-      ).toFixed(0);
-
       const fkInfo = isForeignKey(fieldPath, mostCommonType) ? "FK" : "";
 
       return {
@@ -253,10 +243,8 @@ async function analyzeCollectionSchema(collectionName, sampleSize = 100) {
   }
 }
 
-app.get("/inspect", async (req, res) => {
+async function runInspection(res = null, sampleSize = 100) {
   try {
-    const sampleSize = parseInt(req.query.sampleSize) || 100;
-
     const db = mongoose.connection.db;
     const collections = await db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
@@ -264,10 +252,13 @@ app.get("/inspect", async (req, res) => {
     console.log("Collections found:", collectionNames);
 
     if (collectionNames.length === 0) {
-      return res.json({
+      const result = {
         message: "No collections found in database",
         schema: [],
-      });
+      };
+      if (res) return res.json(result);
+      console.log(result.message);
+      return;
     }
 
     const schema = [];
@@ -282,21 +273,36 @@ app.get("/inspect", async (req, res) => {
     }
 
     const googleAppsScriptUrl = `https://script.google.com/macros/s/${process.env.GOOGLE_SHEET_KEY}/exec`;
+    console.log("Sending data to Google Sheet...");
+
     const response = await axios.post(googleAppsScriptUrl, schema, {
       headers: { "Content-Type": "application/json" },
     });
 
-    res.json({
+    const result = {
       message: "MongoDB schema analysis sent to Google Sheet",
       collectionsAnalyzed: collectionNames.length,
       sampleSize: sampleSize,
       googleResponse: response.data,
-      schema,
-    });
+    };
+
+    if (res) {
+      res.json({ ...result, schema });
+    } else {
+      console.log("Success:", result.message);
+      console.log("Google Response:", result.googleResponse);
+    }
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("Error during inspection:", error);
+    if (res) res.status(500).json({ error: error.message });
   }
+}
+
+connectDB();
+
+app.get("/inspect", async (req, res) => {
+  const sampleSize = parseInt(req.query.sampleSize) || 100;
+  await runInspection(res, sampleSize);
 });
 
 app.get("/health", (req, res) => {

@@ -5,6 +5,10 @@
   "main": "script.js",
   "type": "module",
   "scripts": {
+    "inspect:sql": "cross-env AUTO_RUN=true node script_sql.js",
+    "inspect:pg": "cross-env AUTO_RUN=true DB_DIALECT=postgres node script_sql.js",
+    "inspect:mariadb": "cross-env AUTO_RUN=true DB_DIALECT=mariadb node script_sql.js",
+    "inspect:no-sql": "cross-env AUTO_RUN=true node script_no_sql.js",
     "dev:sql": "node --watch script_sql.js",
     "dev:no-sql": "node --watch script_no_sql.js"
   },
@@ -13,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.8.4",
+    "cross-env": "^10.1.0",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "mariadb": "^3.4.1",
