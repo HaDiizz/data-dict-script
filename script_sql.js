@@ -15,8 +15,8 @@ const sequelize = new Sequelize(
   process.env.DB_PASSWORD,
   {
     host: process.env.DB_HOST,
-    dialect: "postgres",
-    port: 5432,
+    dialect: "mariadb",
+    port: 3306,
     logging: false,
   }
 );
@@ -35,23 +35,23 @@ app.get("/inspect", async (req, res) => {
     const queryInterface = sequelize.getQueryInterface();
 
     // PostgreSQL
-    const tablesRes = await sequelize.query(
-      `
-      SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'public'`,
-      { type: Sequelize.QueryTypes.SELECT }
-    );
-
-    // Mariadb
     // const tablesRes = await sequelize.query(
     //   `
     //   SELECT table_name
-    //   FROM information_schema.tables
-    //   WHERE table_schema = DATABASE()
-    //   `,
+    //     FROM information_schema.tables
+    //     WHERE table_schema = 'public'`,
     //   { type: Sequelize.QueryTypes.SELECT }
     // );
+
+    // Mariadb
+    const tablesRes = await sequelize.query(
+      `
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+      `,
+      { type: Sequelize.QueryTypes.SELECT }
+    );
 
     console.log("Tables:", tablesRes);
 
