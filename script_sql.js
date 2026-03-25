@@ -66,9 +66,7 @@ async function runInspection(res = null) {
     }
 
     for (const row of tablesRes) {
-      let tableName = Array.isArray(row.table_name)
-        ? row.table_name[0]
-        : row.table_name;
+      let tableName = row.table_name || row.TABLE_NAME || row[0] || (typeof row === 'object' ? Object.values(row)[0] : null);
 
       if (!tableName) continue;
       console.log(`Processing table: ${tableName}`);
@@ -92,7 +90,7 @@ async function runInspection(res = null) {
         }
       );
 
-      const foreignKeyColumns = foreignKeys.map((fk) => fk.column_name);
+      const foreignKeyColumns = foreignKeys.map((fk) => fk.column_name || fk.COLUMN_NAME || fk[0] || (typeof fk === 'object' ? Object.values(fk)[0] : null));
 
       try {
         const columns = await queryInterface.describeTable(tableName);
@@ -124,9 +122,11 @@ async function runInspection(res = null) {
         schema.push({ table: tableName, fields });
       } catch (err) {
         console.error(`Error describing table ${tableName}:`, err.message);
-        continue;
+        schema.push({ table: tableName, fields: [] });
       }
     }
+
+    console.log("Total tables processed into schema:", schema.length);
 
     const googleAppsScriptUrl = `https://script.google.com/macros/s/${process.env.GOOGLE_SHEET_KEY}/exec`;
     console.log("Sending data to Google Sheet...");
